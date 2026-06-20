@@ -1,0 +1,20 @@
+{
+  "name": "aviouter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Aviator-style crash game with virtual currency, admin panel, chat, and leaderboards",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "build": "npm run build --prefix client",
+    "android:sync": "npm run cap:sync --prefix client",
+    "android:apk": "npm run android:apk --prefix client",
+    "android:open": "npm run cap:open --prefix client",
+    "start": "npm run start --prefix server",
+    "install:all": "npm install && npm install --prefix server && npm install --prefix client"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

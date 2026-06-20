@@ -1,0 +1,759 @@
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { io } from 'socket.io-client';
+import { useAuth } from '../context/AuthContext';
+import { api } from '../api';
+import { getSocketUrl } from '../config';
+import CopyField from '../components/CopyField';
+import SupportChat from '../components/SupportChat';
+
+function copyText(value, onDone) {
+  if (!value) return;
+  navigator.clipboard.writeText(value).then(onDone).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    onDone();
+  });
+}
+
+export default function AdminPage() {
+  const { token } = useAuth();
+  const [tab, setTab] = useState('overview');
+  const [stats, setStats] = useState({});
+  const [users, setUsers] = useState([]);
+  const [requests, setRequests] = useState([]);
+  const [transactions, setTransactions] = useState([]);
+  const [settings, setSettings] = useState({});
+  const [supportThreads, setSupportThreads] = useState([]);
+  const [selectedSupportUser, setSelectedSupportUser] = useState(null);
+  const [supportMessages, setSupportMessages] = useState([]);
+  const [adjustUser, setAdjustUser] = useState('');
+  const [adjustAmount, setAdjustAmount] = useState(1000);
+  const [message, setMessage] = useState('');
+  const [replyDrafts, setReplyDrafts] = useState({});
+  const [copiedId, setCopiedId] = useState('');
+  const socketRef = useRef(null);
+
+  const load = async () => {
+    const [s, u, r, t, set] = await Promise.all([
+      api.adminStats(token),
+      api.adminUsers(token),
+      api.adminRequests(token),
+      api.adminTransactions(token),
+      api.adminSettings(token),
+    ]);
+    setStats(s);
+    setUsers(u.users);
+    setRequests(r.requests);
+    setTransactions(t.transactions);
+    setSettings(set.settings);
+  };
+
+  const loadSupportThreads = useCallback(async () => {
+    const { threads } = await api.adminSupportThreads(token);
+    setSupportThreads(threads || []);
+  }, [token]);
+
+  const loadSupportMessages = useCallback(
+    async (userId) => {
+      if (!userId) return;
+      const data = await api.adminSupportMessages(token, userId);
+      setSupportMessages(data.messages || []);
+      setSelectedSupportUser(data.user);
+    },
+    [token]
+  );
+
+  useEffect(() => {
+    load().catch(console.error);
+  }, [token]);
+
+  useEffect(() => {
+    if (tab === 'support') {
+      loadSupportThreads().catch(console.error);
+    }
+  }, [tab, loadSupportThreads]);
+
+  useEffect(() => {
+    const socket = io(getSocketUrl() || '/', {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+    });
+    socketRef.current = socket;
+
+    socket.on('admin:withdraw-request', () => {
+      setMessage('New withdraw request — check Overview or Coin requests');
+      load().catch(() => {});
+    });
+
+    socket.on('support:message', (msg) => {
+      loadSupportThreads().catch(() => {});
+      if (selectedSupportUser?.id === msg.thread_user_id) {
+        setSupportMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          return [...prev, msg];
+        });
+      }
+    });
+
+    return () => socket.disconnect();
+  }, [token, selectedSupportUser?.id]);
+
+  const sendAdminSupport = (text) =>
+    new Promise((resolve) => {
+      if (!selectedSupportUser?.id) {
+        resolve({ error: 'Select a user thread first' });
+        return;
+      }
+      socketRef.current?.emit(
+        'admin:support:send',
+        { userId: selectedSupportUser.id, message: text },
+        resolve
+      );
+    });
+
+  const handleBalance = async (userId) => {
+    try {
+      await api.adminBalance(token, userId, {
+        amount: parseInt(adjustAmount, 10),
+        note: 'Admin adjustment',
+      });
+      setMessage('Balance updated');
+      load();
+    } catch (e) {
+      setMessage(e.message);
+    }
+  };
+
+  const handleRequest = async (id, status) => {
+    try {
+      const adminReply = replyDrafts[id]?.trim();
+      await api.adminPatchRequest(token, id, { status, adminReply: adminReply || undefined });
+      setReplyDrafts((d) => ({ ...d, [id]: '' }));
+      setMessage(status === 'approved' ? 'Request approved' : 'Request rejected');
+      load();
+    } catch (e) {
+      setMessage(e.message);
+    }
+  };
+
+  const handleReply = async (id) => {
+    const text = replyDrafts[id]?.trim();
+    if (!text) {
+      setMessage('Write a reply message first');
+      return;
+    }
+    try {
+      await api.adminReplyRequest(token, id, text);
+      setReplyDrafts((d) => ({ ...d, [id]: '' }));
+      setMessage('Reply sent to user');
+      load();
+    } catch (e) {
+      setMessage(e.message);
+    }
+  };
+
+  const handleBlock = async (id, isBlocked) => {
+    await api.adminPatchUser(token, id, { isBlocked });
+    load();
+  };
+
+  const saveSettings = async () => {
+    try {
+      await api.adminPatchSettings(token, settings);
+      setMessage('Settings saved');
+    } catch (e) {
+      setMessage(e.message);
+    }
+  };
+
+  const handleCopyAccount = (id, accountNumber) => {
+    copyText(accountNumber, () => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(''), 2000);
+    });
+  };
+
+  const pendingWithdrawals = stats.pendingWithdrawals || [];
+  const withdrawBadge = stats.pendingWithdraw || 0;
+
+  const tabs = [
+    ['overview', 'Overview'],
+    ['users', 'Users'],
+    ['requests', `Coin requests${withdrawBadge ? ` (${withdrawBadge})` : ''}`],
+    ['support', 'Support chat'],
+    ['transactions', 'Transactions'],
+    ['settings', 'Game settings'],
+  ];
+
+  const renderRequestCard = (r) => (
+    <div
+      key={r.id}
+      className={`card admin-request-card ${r.type === 'withdraw' && r.status === 'pending' ? 'admin-request-withdraw' : ''}`}
+    >
+      <div className="admin-request-header">
+        <div>
+          <strong>{r.username}</strong>
+          <span className="admin-req-meta">{r.email}</span>
+        </div>
+        <span className={`wallet-status ${r.status}`}>{r.status}</span>
+      </div>
+      <div className="admin-request-body">
+        <span className={r.type === 'withdraw' ? 'admin-withdraw-type' : ''}>
+          {r.type} — <strong>{r.amount} 🪙</strong>
+        </span>
+        <div className="admin-request-details">
+          {r.type === 'deposit' ? (
+            <>
+              <div>Name: {r.depositor_name || '—'}</div>
+              <div>From: {r.sender_number || '—'}</div>
+              <div>TID: {r.transaction_id || '—'}</div>
+            </>
+          ) : (
+            <>
+              <div>Account type: {r.account_type || '—'}</div>
+              <div>Account holder: {r.account_name || '—'}</div>
+              <div className="admin-account-row">
+                <span>Account number: <strong>{r.account_number || '—'}</strong></span>
+                {r.account_number && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost copy-btn-inline"
+                    onClick={() => handleCopyAccount(r.id, r.account_number)}
+                  >
+                    {copiedId === r.id ? 'Copied!' : 'Copy number'}
+                  </button>
+                )}
+              </div>
+              {r.status === 'pending' && r.type === 'withdraw' && (
+                <p className="admin-withdraw-hint">
+                  Copy account → send payment → then Approve or Reject
+                </p>
+              )}
+            </>
+          )}
+        </div>
+        {r.admin_reply && (
+          <div className="admin-prev-reply">
+            <strong>Your last reply:</strong> {r.admin_reply}
+            {r.admin_replied_at && (
+              <small> ({new Date(r.admin_replied_at).toLocaleString()})</small>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="admin-reply-box">
+        <label className="label">Reply to user</label>
+        <textarea
+          className="input admin-reply-input"
+          rows={2}
+          placeholder="e.g. Withdraw sent to your account."
+          value={replyDrafts[r.id] ?? ''}
+          onChange={(e) => setReplyDrafts((d) => ({ ...d, [r.id]: e.target.value }))}
+        />
+        <div className="admin-reply-actions">
+          <button type="button" className="btn btn-ghost" onClick={() => handleReply(r.id)}>
+            Send reply
+          </button>
+          {r.status === 'pending' && (
+            <>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => handleRequest(r.id, 'approved')}
+              >
+                Approve
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => handleRequest(r.id, 'rejected')}
+              >
+                Reject
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="page admin-page">
+      <h1>Admin Dashboard</h1>
+      <p style={{ color: 'var(--muted)', marginBottom: 20 }}>
+        Users, withdraw payments, private support chat, and game settings
+      </p>
+
+      <div className="tabs">
+        {tabs.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={`tab ${tab === id ? 'active' : ''}`}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {message && <p style={{ color: 'var(--accent)', marginBottom: 12 }}>{message}</p>}
+
+      {tab === 'overview' && (
+        <>
+          <div className="admin-stats">
+            <div className="card stat-card">
+              <span>Total users</span>
+              <strong>{stats.users}</strong>
+            </div>
+            <div className="card stat-card stat-card-warn">
+              <span>Pending withdraw</span>
+              <strong>{stats.pendingWithdraw ?? 0}</strong>
+            </div>
+            <div className="card stat-card">
+              <span>Pending deposit</span>
+              <strong>{stats.pendingDeposit ?? 0}</strong>
+            </div>
+            <div className="card stat-card">
+              <span>Total bets</span>
+              <strong>{stats.totalBets}</strong>
+            </div>
+          </div>
+
+          {pendingWithdrawals.length > 0 && (
+            <section className="admin-withdraw-section">
+              <h2>Pending withdrawals — pay then approve</h2>
+              <p style={{ color: 'var(--muted)', marginBottom: 16, fontSize: '0.9rem' }}>
+                Copy the user&apos;s account number, send payment, then open Coin requests to
+                approve or reject.
+              </p>
+              <div className="admin-withdraw-grid">
+                {pendingWithdrawals.map((w) => (
+                  <div key={w.id} className="card admin-withdraw-card">
+                    <div className="admin-withdraw-card-top">
+                      <div>
+                        <strong>{w.username}</strong>
+                        <span className="admin-req-meta">{w.email}</span>
+                      </div>
+                      <span className="admin-withdraw-amount">{w.amount} 🪙</span>
+                    </div>
+                    <div>Type: {w.account_type || '—'}</div>
+                    <div>Holder: {w.account_name || '—'}</div>
+                    <CopyField label="Account number (copy & pay)" value={w.account_number} />
+                    <div className="admin-withdraw-card-actions">
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() => {
+                          setTab('requests');
+                          setReplyDrafts((d) => ({
+                            ...d,
+                            [w.id]: d[w.id] || 'Payment sent to your account.',
+                          }));
+                        }}
+                      >
+                        Open in requests
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </>
+      )}
+
+      {tab === 'users' && (
+        <div className="card table-wrap">
+          <div className="admin-adjust-bar">
+            <select className="input" value={adjustUser} onChange={(e) => setAdjustUser(e.target.value)}>
+              <option value="">Select user to adjust balance</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.username} ({u.balance} coins)
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              className="input"
+              value={adjustAmount}
+              onChange={(e) => setAdjustAmount(e.target.value)}
+              placeholder="Amount (+ or -)"
+            />
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!adjustUser}
+              onClick={() => handleBalance(adjustUser)}
+            >
+              Apply
+            </button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Email</th>
+                <th>Referral code</th>
+                <th>Balance</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id}>
+                  <td>{u.username}</td>
+                  <td>{u.email}</td>
+                  <td>{u.referral_code || '—'}</td>
+                  <td>{u.balance?.toLocaleString()}</td>
+                  <td>{u.role}</td>
+                  <td>{u.is_blocked ? 'Blocked' : 'Active'}</td>
+                  <td>
+                    {u.role !== 'admin' && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ padding: '6px 10px', fontSize: '0.8rem' }}
+                        onClick={() => handleBlock(u.id, !u.is_blocked)}
+                      >
+                        {u.is_blocked ? 'Unblock' : 'Block'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === 'requests' && (
+        <div className="admin-requests-list">
+          <p style={{ color: 'var(--muted)', marginBottom: 12, fontSize: '0.9rem' }}>
+            Withdraw requests appear first. Copy account number → pay user → Approve or Reject.
+          </p>
+          {requests.map(renderRequestCard)}
+          {!requests.length && <p className="wallet-empty">No requests yet.</p>}
+        </div>
+      )}
+
+      {tab === 'support' && (
+        <div className="admin-support-layout">
+          <div className="card admin-support-threads">
+            <h3>User threads</h3>
+            <p className="chat-support-hint">Private chat — each user talks only with you</p>
+            {supportThreads.length === 0 && (
+              <p className="wallet-empty">No messages yet. Users chat from the game page.</p>
+            )}
+            <ul className="admin-thread-list">
+              {supportThreads.map((t) => (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    className={`admin-thread-btn ${selectedSupportUser?.id === t.id ? 'active' : ''}`}
+                    onClick={() => loadSupportMessages(t.id)}
+                  >
+                    <strong>{t.username}</strong>
+                    <small>{t.last_message?.slice(0, 60) || '—'}</small>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {users
+              .filter((u) => u.role === 'user')
+              .slice(0, 30)
+              .map((u) =>
+                supportThreads.some((t) => t.id === u.id) ? null : (
+                  <button
+                    key={u.id}
+                    type="button"
+                    className="btn btn-ghost admin-start-thread"
+                    onClick={() => loadSupportMessages(u.id)}
+                  >
+                    Message {u.username}
+                  </button>
+                )
+              )}
+          </div>
+          <div className="admin-support-chat-wrap">
+            {selectedSupportUser ? (
+              <>
+                <p style={{ marginBottom: 8 }}>
+                  Chat with <strong>{selectedSupportUser.username}</strong> ({selectedSupportUser.email})
+                </p>
+                <SupportChat
+                  title="Private support"
+                  messages={supportMessages}
+                  onSend={sendAdminSupport}
+                  disabled={false}
+                  viewerRole="admin"
+                />
+              </>
+            ) : (
+              <div className="card admin-support-placeholder">
+                Select a user thread or start a new conversation
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === 'transactions' && (
+        <div className="card table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>User</th>
+                <th>Type</th>
+                <th>Amount</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.map((t) => (
+                <tr key={t.id}>
+                  <td>{new Date(t.created_at).toLocaleString()}</td>
+                  <td>{t.username || '—'}</td>
+                  <td>{t.type}</td>
+                  <td>{t.amount}</td>
+                  <td>{t.note || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === 'settings' && (
+        <div className="card">
+          <h3 style={{ marginBottom: 12 }}>Deposit account (shown to users — copyable)</h3>
+          <div className="settings-grid" style={{ marginBottom: 24 }}>
+            <div>
+              <label className="label">deposit_account_type</label>
+              <input
+                className="input"
+                value={settings.deposit_account_type || ''}
+                placeholder="e.g. JazzCash, Bank"
+                onChange={(e) =>
+                  setSettings((s) => ({ ...s, deposit_account_type: e.target.value }))
+                }
+              />
+            </div>
+            <div>
+              <label className="label">deposit_account_name</label>
+              <input
+                className="input"
+                value={settings.deposit_account_name || ''}
+                onChange={(e) =>
+                  setSettings((s) => ({ ...s, deposit_account_name: e.target.value }))
+                }
+              />
+            </div>
+            <div>
+              <label className="label">deposit_account_number</label>
+              <input
+                className="input"
+                value={settings.deposit_account_number || ''}
+                onChange={(e) =>
+                  setSettings((s) => ({ ...s, deposit_account_number: e.target.value }))
+                }
+              />
+            </div>
+          </div>
+          <h3 style={{ marginBottom: 12 }}>Game settings</h3>
+          <div className="settings-grid">
+            {Object.entries(settings)
+              .filter(([key]) => !key.startsWith('deposit_account'))
+              .map(([key, value]) => (
+                <div key={key}>
+                  <label className="label">{key.replace(/_/g, ' ')}</label>
+                  <input
+                    className="input"
+                    value={value}
+                    onChange={(e) => setSettings((s) => ({ ...s, [key]: e.target.value }))}
+                  />
+                </div>
+              ))}
+          </div>
+          <button type="button" className="btn btn-primary" style={{ marginTop: 16 }} onClick={saveSettings}>
+            Save settings
+          </button>
+        </div>
+      )}
+
+      <style>{`
+        .admin-stats {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 16px;
+          margin-bottom: 24px;
+        }
+        .stat-card {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .stat-card span { color: var(--muted); font-size: 0.9rem; }
+        .stat-card strong { font-size: 2rem; color: var(--gold); }
+        .stat-card-warn {
+          border-color: rgba(251, 191, 36, 0.45);
+        }
+        .stat-card-warn strong { color: #fbbf24; }
+        .admin-withdraw-section h2 {
+          font-size: 1.15rem;
+          margin-bottom: 8px;
+        }
+        .admin-withdraw-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          gap: 16px;
+        }
+        .admin-withdraw-card {
+          padding: 16px;
+          border-color: rgba(251, 191, 36, 0.35);
+        }
+        .admin-withdraw-card-top {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 10px;
+        }
+        .admin-withdraw-amount {
+          color: var(--gold);
+          font-weight: 700;
+          font-size: 1.1rem;
+        }
+        .admin-adjust-bar {
+          display: grid;
+          grid-template-columns: 2fr 1fr auto;
+          gap: 12px;
+          margin-bottom: 20px;
+        }
+        @media (max-width: 700px) {
+          .admin-adjust-bar { grid-template-columns: 1fr; }
+        }
+        .settings-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 16px;
+        }
+        .admin-request-details {
+          font-size: 0.82rem;
+          line-height: 1.55;
+          min-width: 200px;
+        }
+        .admin-requests-list { display: flex; flex-direction: column; gap: 16px; }
+        .admin-request-card { padding: 16px; }
+        .admin-request-withdraw {
+          border-color: rgba(251, 191, 36, 0.4);
+          background: rgba(251, 191, 36, 0.06);
+        }
+        .admin-withdraw-type { color: #fbbf24; font-weight: 600; }
+        .admin-account-row {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 10px;
+          margin-top: 6px;
+        }
+        .copy-btn-inline {
+          padding: 4px 10px !important;
+          font-size: 0.8rem !important;
+        }
+        .admin-withdraw-hint {
+          margin-top: 8px;
+          color: var(--muted);
+          font-size: 0.8rem;
+        }
+        .admin-request-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          margin-bottom: 10px;
+        }
+        .admin-req-meta {
+          display: block;
+          font-size: 0.85rem;
+          color: var(--muted);
+          font-weight: 400;
+        }
+        .admin-request-body { margin-bottom: 12px; font-size: 0.9rem; }
+        .admin-prev-reply {
+          margin-top: 10px;
+          padding: 10px;
+          background: rgba(34, 197, 94, 0.1);
+          border-radius: 8px;
+          color: var(--accent);
+          font-size: 0.88rem;
+        }
+        .admin-prev-reply small { color: var(--muted); }
+        .admin-reply-input {
+          resize: vertical;
+          min-height: 56px;
+          margin-bottom: 10px;
+        }
+        .admin-reply-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .admin-support-layout {
+          display: grid;
+          grid-template-columns: 260px 1fr;
+          gap: 16px;
+          align-items: start;
+        }
+        @media (max-width: 800px) {
+          .admin-support-layout { grid-template-columns: 1fr; }
+        }
+        .admin-support-threads {
+          padding: 16px;
+          max-height: 70vh;
+          overflow-y: auto;
+        }
+        .admin-thread-list {
+          list-style: none;
+          padding: 0;
+          margin: 0 0 12px;
+        }
+        .admin-thread-btn {
+          width: 100%;
+          text-align: left;
+          padding: 10px;
+          border: none;
+          background: transparent;
+          border-radius: 8px;
+          cursor: pointer;
+          color: var(--text);
+        }
+        .admin-thread-btn:hover,
+        .admin-thread-btn.active {
+          background: rgba(59, 130, 246, 0.15);
+        }
+        .admin-thread-btn small {
+          display: block;
+          color: var(--muted);
+          font-size: 0.75rem;
+          margin-top: 4px;
+        }
+        .admin-start-thread {
+          width: 100%;
+          margin-top: 4px;
+          font-size: 0.8rem;
+        }
+        .admin-support-placeholder {
+          padding: 40px;
+          text-align: center;
+          color: var(--muted);
+        }
+      `}</style>
+    </div>
+  );
+}

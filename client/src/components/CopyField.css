@@ -1,0 +1,25 @@
+.copy-field {
+  margin-bottom: 14px;
+}
+
+.copy-field-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.copy-field-value {
+  flex: 1;
+  padding: 12px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 1rem;
+  color: var(--gold);
+  word-break: break-all;
+}
+
+.copy-btn {
+  flex-shrink: 0;
+  padding: 10px 16px !important;
+}

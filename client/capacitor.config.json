@@ -1,0 +1,12 @@
+{
+  "appId": "com.aviouter.game",
+  "appName": "Aviouter",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": true,
+    "cleartextTrafficPermitted": true
+  },
+  "server": {
+    "androidScheme": "http"
+  }
+}
