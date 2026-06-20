@@ -8,6 +8,7 @@
     "dev:server": "npm run dev --prefix server",
     "dev:client": "npm run dev --prefix client",
     "build": "npm run build --prefix client",
+    "postinstall": "npm install --prefix client",
     "android:sync": "npm run cap:sync --prefix client",
     "android:apk": "npm run android:apk --prefix client",
     "android:open": "npm run cap:open --prefix client",
