@@ -1,7 +1,10 @@
 import { getApiBase } from './config';
 
 function headers(token) {
-  const h = { 'Content-Type': 'application/json' };
+  const h = { 
+    'Content-Type': 'application/json',
+    'Bypass-Tunnel-Reminder': 'true'
+  };
   if (token) h.Authorization = `Bearer ${token}`;
   return h;
 }
@@ -89,4 +92,8 @@ export const api = {
   adminChat: (token) => request('/admin/chat', { headers: headers(token) }),
   adminDeleteChat: (token, id) =>
     request(`/admin/chat/${id}`, { method: 'DELETE', headers: headers(token) }),
+  placeBet: (token, body) => 
+    request('/game/bet', { method: 'POST', body: JSON.stringify(body), headers: headers(token) }),
+  cashout: (token) => 
+    request('/game/cashout', { method: 'POST', headers: headers(token) }),
 };

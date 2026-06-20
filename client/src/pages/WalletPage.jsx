@@ -51,7 +51,10 @@ export default function WalletPage() {
 
   useEffect(() => {
     const socketUrl = getSocketUrl();
-    const socket = io(socketUrl || '/', { auth: { token } });
+    const socket = io(socketUrl || '/', {
+      auth: { token },
+      extraHeaders: { 'Bypass-Tunnel-Reminder': 'true' }
+    });
     socket.on('wallet:updated', async () => {
       await refreshUser();
       loadRequests();

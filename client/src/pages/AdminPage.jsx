@@ -80,6 +80,7 @@ export default function AdminPage() {
   useEffect(() => {
     const socket = io(getSocketUrl() || '/', {
       auth: { token },
+      extraHeaders: { 'Bypass-Tunnel-Reminder': 'true' },
       transports: ['websocket', 'polling'],
     });
     socketRef.current = socket;

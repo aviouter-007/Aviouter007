@@ -2,6 +2,7 @@
   "name": "aviouter",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Aviator-style crash game with virtual currency, admin panel, chat, and leaderboards",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
@@ -17,5 +18,11 @@
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
+    "bcryptjs": "^3.0.3",
+    "jsonwebtoken": "^9.0.3",
+    "uuid": "^14.0.1"
   }
 }

@@ -1,80 +1,81 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { io } from 'socket.io-client';
 import { api } from '../api';
-import { getSocketUrl } from '../config';
 
 export function useGameSocket(token) {
   const [gameState, setGameState] = useState(null);
   const [history, setHistory] = useState([]);
   const [supportMessages, setSupportMessages] = useState([]);
-  const socketRef = useRef(null);
+  const intervalRef = useRef(null);
+  const animationRef = useRef(null);
+
+  const fetchState = useCallback(async () => {
+    try {
+      const data = await api.gameState();
+      setGameState(prev => {
+        // If transitioning from crashed/betting to flying, store the exact start time locally
+        if (data.phase === 'flying' && prev?.phase !== 'flying') {
+           data.localStartTime = Date.now() - (Date.now() - new Date(data.round.started_at).getTime());
+        } else if (data.phase === 'flying' && prev?.phase === 'flying') {
+           data.localStartTime = prev.localStartTime; // Preserve start time
+        }
+        return data;
+      });
+    } catch (e) { }
+  }, []);
 
   const refreshHistory = useCallback(() => {
     api.gameHistory().then((d) => setHistory(d.rounds || [])).catch(() => {});
   }, []);
 
   useEffect(() => {
-    api.gameState().then(setGameState).catch(() => {});
-    if (token) {
-      api.supportMessages(token).then((d) => setSupportMessages(d.messages || [])).catch(() => {});
-    } else {
-      setSupportMessages([]);
-    }
+    fetchState();
     refreshHistory();
 
-    const socketUrl = getSocketUrl();
-    const socket = io(socketUrl || '/', {
-      auth: { token },
-      transports: ['websocket', 'polling'],
-    });
-    socketRef.current = socket;
+    // Poll the server state every 1 second
+    intervalRef.current = setInterval(fetchState, 1000);
 
-    socket.on('game:state', setGameState);
-    socket.on('round:betting', setGameState);
-    socket.on('round:flying', setGameState);
-    socket.on('round:tick', (data) => {
-      setGameState((prev) =>
-        prev ? { ...prev, multiplier: data.multiplier } : prev
-      );
-    });
-    socket.on('round:crashed', (data) => {
-      setGameState(data);
-      refreshHistory();
-    });
-    socket.on('round:bet', setGameState);
-    socket.on('round:cashout', setGameState);
+    return () => {
+      clearInterval(intervalRef.current);
+      cancelAnimationFrame(animationRef.current);
+    };
+  }, [fetchState, refreshHistory]);
 
-    socket.on('support:message', (msg) => {
-      setSupportMessages((prev) => {
-        if (prev.some((m) => m.id === msg.id)) return prev;
-        return [...prev, msg];
-      });
-    });
-
-    return () => socket.disconnect();
-  }, [token, refreshHistory]);
+  // Smooth local animation of the multiplier
+  useEffect(() => {
+    if (gameState?.phase === 'flying' && gameState?.localStartTime) {
+      const animate = () => {
+        const elapsedSec = (Date.now() - gameState.localStartTime) / 1000;
+        const currentMultiplier = Math.round((1 + elapsedSec * 0.15 + Math.pow(elapsedSec, 1.6) * 0.08) * 100) / 100;
+        
+        setGameState(prev => prev ? { ...prev, multiplier: currentMultiplier } : prev);
+        animationRef.current = requestAnimationFrame(animate);
+      };
+      animationRef.current = requestAnimationFrame(animate);
+      
+      return () => cancelAnimationFrame(animationRef.current);
+    }
+  }, [gameState?.phase, gameState?.localStartTime]);
 
   const placeBet = useCallback(
-    (amount, autoCashout) =>
-      new Promise((resolve) => {
-        socketRef.current?.emit('bet:place', { amount, autoCashout }, resolve);
-      }),
-    []
+    async (amount, autoCashout) => {
+      await api.placeBet(token, { amount, autoCashout });
+      fetchState();
+    },
+    [token, fetchState]
   );
 
   const cashout = useCallback(
-    () =>
-      new Promise((resolve) => {
-        socketRef.current?.emit('bet:cashout', {}, resolve);
-      }),
-    []
+    async () => {
+      await api.cashout(token);
+      fetchState();
+    },
+    [token, fetchState]
   );
 
   const sendSupport = useCallback(
-    (message) =>
-      new Promise((resolve) => {
-        socketRef.current?.emit('support:send', { message }, resolve);
-      }),
+    async (message) => {
+      // Stub
+    },
     []
   );
 
