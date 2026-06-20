@@ -6,10 +6,6 @@ services:
     buildCommand: npm install
     startCommand: npm start
     plan: free
-    disk:
-      name: database
-      mountPath: /opt/render/project/src/server/data
-      sizeGB: 1
     envVars:
       - key: NODE_VERSION
         value: 18.18.0
