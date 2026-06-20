@@ -4,11 +4,16 @@ import { supabase } from '../../_lib/db.js';
 export default adminMiddleware(async function handler(req, res) {
   if (req.method === 'GET') {
     const { data } = await supabase
-      .from('currency_requests')
-      .select('*, users(username, email)')
+      .from('chat_messages')
+      .select('*')
       .order('created_at', { ascending: false })
-      .limit(50);
-    return res.json({ requests: data || [] });
+      .limit(100);
+    return res.json(data || []);
+  }
+  if (req.method === 'DELETE') {
+    const id = req.query.id;
+    await supabase.from('chat_messages').update({ is_deleted: true }).eq('id', id);
+    return res.json({ ok: true });
   }
   return res.status(405).send('Method not allowed');
 });
