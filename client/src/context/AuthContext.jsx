@@ -13,14 +13,21 @@ export function AuthProvider({ children }) {
       setLoading(false);
       return;
     }
-    api
-      .me(token)
-      .then(({ user: u }) => setUser(u))
-      .catch(() => {
-        localStorage.removeItem('aviouter_token');
-        setToken(null);
-      })
-      .finally(() => setLoading(false));
+    
+    const fetchMe = () => {
+      api
+        .me(token)
+        .then(({ user: u }) => setUser(u))
+        .catch(() => {
+          localStorage.removeItem('aviouter_token');
+          setToken(null);
+        })
+        .finally(() => setLoading(false));
+    };
+
+    fetchMe();
+    const interval = setInterval(fetchMe, 5000);
+    return () => clearInterval(interval);
   }, [token]);
 
   const login = async (email, password) => {
