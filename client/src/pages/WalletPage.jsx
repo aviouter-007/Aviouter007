@@ -2,8 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
-import { io } from 'socket.io-client';
-import { getSocketUrl } from '../config';
+
 import CopyField from '../components/CopyField';
 import './WalletPage.css';
 
@@ -50,21 +49,14 @@ export default function WalletPage() {
   }, [user, depositorName]);
 
   useEffect(() => {
-    const socketUrl = getSocketUrl();
-    const socket = io(socketUrl || '/', {
-      auth: { token },
-      extraHeaders: { 'Bypass-Tunnel-Reminder': 'true' }
-    });
-    socket.on('wallet:updated', async () => {
-      await refreshUser();
-      loadRequests();
-      setMessage('Admin processed your request. Balance updated.');
-    });
-    socket.on('request:reply', () => {
-      loadRequests();
-      setMessage('Admin sent you a reply — see My requests below.');
-    });
-    return () => socket.disconnect();
+    if (!token) return;
+    const interval = setInterval(async () => {
+      try {
+        await refreshUser();
+        loadRequests();
+      } catch (e) {}
+    }, 5000);
+    return () => clearInterval(interval);
   }, [token, refreshUser, loadRequests]);
 
   const submitDeposit = async () => {

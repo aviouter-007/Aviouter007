@@ -2,13 +2,12 @@ import { useAuth } from '../context/AuthContext';
 import { useGameSocket } from '../hooks/useGameSocket';
 import CrashCanvas from '../components/CrashCanvas';
 import GamePanel from '../components/GamePanel';
-import SupportChat from '../components/SupportChat';
 import { api } from '../api';
 import './GamePage.css';
 
 export default function GamePage() {
   const { user, token, refreshUser } = useAuth();
-  const { gameState, history, supportMessages, placeBet, cashout, sendSupport } =
+  const { gameState, history, placeBet, cashout } =
     useGameSocket(token);
 
   const phase = gameState?.phase || 'waiting';
@@ -75,14 +74,7 @@ export default function GamePage() {
           activeBets={gameState?.activeBets}
         />
       </div>
-
-      <aside className="game-sidebar">
-        <SupportChat
-          messages={supportMessages}
-          onSend={sendSupport}
-          disabled={!token}
-        />
-      </aside>
     </div>
   );
 }
+

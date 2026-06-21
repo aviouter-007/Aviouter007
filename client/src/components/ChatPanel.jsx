@@ -4,10 +4,12 @@ import './ChatPanel.css';
 export default function ChatPanel({ messages, onSend, disabled }) {
   const [text, setText] = useState('');
   const [error, setError] = useState('');
-  const bottomRef = useRef(null);
+  const chatMessagesRef = useRef(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (chatMessagesRef.current) {
+      chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight;
+    }
   }, [messages]);
 
   const handleSubmit = async (e) => {
@@ -22,7 +24,7 @@ export default function ChatPanel({ messages, onSend, disabled }) {
   return (
     <div className="chat-panel card">
       <h3>Live Chat</h3>
-      <div className="chat-messages">
+      <div className="chat-messages" ref={chatMessagesRef}>
         {messages.length === 0 && (
           <p className="chat-empty">Say hello to other pilots!</p>
         )}
@@ -32,7 +34,6 @@ export default function ChatPanel({ messages, onSend, disabled }) {
             <span>{m.message}</span>
           </div>
         ))}
-        <div ref={bottomRef} />
       </div>
       <form onSubmit={handleSubmit} className="chat-form">
         <input
@@ -51,3 +52,4 @@ export default function ChatPanel({ messages, onSend, disabled }) {
     </div>
   );
 }
+

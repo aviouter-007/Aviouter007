@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import GlobalSupportChat from './GlobalSupportChat';
 
 export default function Layout({ admin }) {
   const { user, logout } = useAuth();
@@ -53,6 +54,7 @@ export default function Layout({ admin }) {
         </div>
       </nav>
       <Outlet />
+      <GlobalSupportChat />
     </div>
   );
 }

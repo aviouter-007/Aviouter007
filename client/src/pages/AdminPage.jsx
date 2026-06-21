@@ -1,8 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { io } from 'socket.io-client';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
-import { getSocketUrl } from '../config';
 import CopyField from '../components/CopyField';
 import SupportChat from '../components/SupportChat';
 
@@ -78,43 +76,36 @@ export default function AdminPage() {
   }, [tab, loadSupportThreads]);
 
   useEffect(() => {
-    const socket = io(getSocketUrl() || '/', {
-      auth: { token },
-      extraHeaders: { 'Bypass-Tunnel-Reminder': 'true' },
-      transports: ['websocket', 'polling'],
-    });
-    socketRef.current = socket;
-
-    socket.on('admin:withdraw-request', () => {
-      setMessage('New withdraw request — check Overview or Coin requests');
+    if (!token) return;
+    const interval = setInterval(() => {
       load().catch(() => {});
-    });
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [token]);
 
-    socket.on('support:message', (msg) => {
+  useEffect(() => {
+    if (!token || tab !== 'support') return;
+    const interval = setInterval(() => {
       loadSupportThreads().catch(() => {});
-      if (selectedSupportUser?.id === msg.thread_user_id) {
-        setSupportMessages((prev) => {
-          if (prev.some((m) => m.id === msg.id)) return prev;
-          return [...prev, msg];
-        });
+      if (selectedSupportUser?.id) {
+        loadSupportMessages(selectedSupportUser.id).catch(() => {});
       }
-    });
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [token, tab, selectedSupportUser?.id, loadSupportThreads, loadSupportMessages]);
 
-    return () => socket.disconnect();
-  }, [token, selectedSupportUser?.id]);
-
-  const sendAdminSupport = (text) =>
-    new Promise((resolve) => {
-      if (!selectedSupportUser?.id) {
-        resolve({ error: 'Select a user thread first' });
-        return;
-      }
-      socketRef.current?.emit(
-        'admin:support:send',
-        { userId: selectedSupportUser.id, message: text },
-        resolve
-      );
-    });
+  const sendAdminSupport = async (text) => {
+    if (!selectedSupportUser?.id) {
+      return { error: 'Select a user thread first' };
+    }
+    try {
+      const result = await api.adminSendSupportMessage(token, selectedSupportUser.id, text);
+      await loadSupportMessages(selectedSupportUser.id);
+      return result;
+    } catch (e) {
+      return { error: e.message };
+    }
+  };
 
   const handleBalance = async (userId) => {
     try {

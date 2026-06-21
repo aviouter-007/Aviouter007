@@ -1,16 +1,10 @@
 .game-page {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: 1fr;
   gap: 16px;
   padding: 16px;
   flex: 1;
   align-items: start;
-}
-
-@media (max-width: 900px) {
-  .game-page {
-    grid-template-columns: 1fr;
-  }
 }
 
 .game-main {

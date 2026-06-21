@@ -4,7 +4,6 @@ import { api } from '../api';
 export function useGameSocket(token) {
   const [gameState, setGameState] = useState(null);
   const [history, setHistory] = useState([]);
-  const [supportMessages, setSupportMessages] = useState([]);
   const intervalRef = useRef(null);
   const animationRef = useRef(null);
 
@@ -56,6 +55,11 @@ export function useGameSocket(token) {
     }
   }, [gameState?.phase, gameState?.localStartTime]);
 
+  useEffect(() => {
+    if (!token) return;
+    // Removed support polling
+  }, [token]);
+
   const placeBet = useCallback(
     async (amount, autoCashout) => {
       await api.placeBet(token, { amount, autoCashout });
@@ -72,19 +76,8 @@ export function useGameSocket(token) {
     [token, fetchState]
   );
 
-  const sendSupport = useCallback(
-    async (message) => {
-      // Stub
-    },
-    []
-  );
-
-  return {
-    gameState,
     history,
-    supportMessages,
     placeBet,
     cashout,
-    sendSupport,
   };
 }

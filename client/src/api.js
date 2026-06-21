@@ -47,12 +47,22 @@ export const api = {
     request('/currency/deposit-info', { headers: headers(token) }),
   referral: (token) => request('/referral', { headers: headers(token) }),
   chat: () => request('/chat'),
-  supportMessages: (token) =>
-    request('/support/messages', { headers: headers(token) }),
-  adminSupportThreads: (token) =>
-    request('/admin/support/threads', { headers: headers(token) }),
+  supportMessages: (token) => request('/support/messages', { headers: headers(token) }),
+  sendSupportMessage: (token, message) =>
+    request('/support/messages', {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+      headers: headers(token),
+    }),
+  adminSupportThreads: (token) => request('/admin/support/threads', { headers: headers(token) }),
   adminSupportMessages: (token, userId) =>
     request(`/admin/support/messages/${userId}`, { headers: headers(token) }),
+  adminSendSupportMessage: (token, userId, message) =>
+    request(`/admin/support/messages/${userId}`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+      headers: headers(token),
+    }),
   adminStats: (token) => request('/admin/stats', { headers: headers(token) }),
   adminUsers: (token) => request('/admin/users', { headers: headers(token) }),
   adminPatchUser: (token, id, body) =>
