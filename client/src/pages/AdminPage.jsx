@@ -79,7 +79,7 @@ export default function AdminPage() {
     if (!token) return;
     const interval = setInterval(() => {
       load().catch(() => {});
-    }, 8000);
+    }, 5000);
     return () => clearInterval(interval);
   }, [token]);
 
@@ -304,13 +304,15 @@ export default function AdminPage() {
               <span>Total users</span>
               <strong>{stats.users}</strong>
             </div>
-            <div className="card stat-card stat-card-warn">
-              <span>Pending withdraw</span>
-              <strong>{stats.pendingWithdraw ?? 0}</strong>
+            <div className={`card stat-card ${(stats.pendingDeposit ?? 0) > 0 ? 'stat-card-urgent' : ''}`}
+              style={{ cursor: 'pointer' }} onClick={() => setTab('requests')}>
+              <span>⏳ Pending deposits</span>
+              <strong style={{ fontSize: '1.8rem' }}>{stats.pendingDeposit ?? 0}</strong>
             </div>
-            <div className="card stat-card">
-              <span>Pending deposit</span>
-              <strong>{stats.pendingDeposit ?? 0}</strong>
+            <div className={`card stat-card ${(stats.pendingWithdraw ?? 0) > 0 ? 'stat-card-warn' : ''}`}
+              style={{ cursor: 'pointer' }} onClick={() => setTab('requests')}>
+              <span>💸 Pending withdrawals</span>
+              <strong style={{ fontSize: '1.8rem' }}>{stats.pendingWithdraw ?? 0}</strong>
             </div>
             <div className="card stat-card">
               <span>Total bets</span>
@@ -318,45 +320,67 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {pendingWithdrawals.length > 0 && (
+          {/* Quick action: All pending requests right on overview */}
+          {requests.filter(r => r.status === 'pending').length > 0 && (
             <section className="admin-withdraw-section">
-              <h2>Pending withdrawals — pay then approve</h2>
+              <h2>🔔 Pending Requests — Action Required</h2>
               <p style={{ color: 'var(--muted)', marginBottom: 16, fontSize: '0.9rem' }}>
-                Copy the user&apos;s account number, send payment, then open Coin requests to
-                approve or reject.
+                Deposits: verify TID then Approve. &nbsp;|&nbsp; Withdrawals: pay user first then Approve.
               </p>
               <div className="admin-withdraw-grid">
-                {pendingWithdrawals.map((w) => (
-                  <div key={w.id} className="card admin-withdraw-card">
+                {requests.filter(r => r.status === 'pending').map((r) => (
+                  <div key={r.id} className={`card admin-withdraw-card ${r.type === 'deposit' ? 'admin-deposit-card' : 'admin-request-withdraw'}`}>
                     <div className="admin-withdraw-card-top">
                       <div>
-                        <strong>{w.username}</strong>
-                        <span className="admin-req-meta">{w.email}</span>
+                        <span className={`req-type-badge ${r.type}`}>{r.type === 'deposit' ? '📥 Deposit' : '📤 Withdraw'}</span>
+                        <strong style={{ display: 'block', marginTop: 4 }}>{r.username}</strong>
+                        <span className="admin-req-meta">{r.email}</span>
                       </div>
-                      <span className="admin-withdraw-amount">{w.amount} 🪙</span>
+                      <span className="admin-withdraw-amount">{r.amount} 🪙</span>
                     </div>
-                    <div>Type: {w.account_type || '—'}</div>
-                    <div>Holder: {w.account_name || '—'}</div>
-                    <CopyField label="Account number (copy & pay)" value={w.account_number} />
-                    <div className="admin-withdraw-card-actions">
+
+                    {r.type === 'deposit' ? (
+                      <div className="admin-request-details" style={{ marginTop: 8 }}>
+                        <div>👤 Name: <strong>{r.depositor_name || '—'}</strong></div>
+                        <div>📱 From: <strong>{r.sender_number || '—'}</strong></div>
+                        <div>🆔 TID: <strong>{r.transaction_id || '—'}</strong></div>
+                      </div>
+                    ) : (
+                      <div className="admin-request-details" style={{ marginTop: 8 }}>
+                        <div>💳 Type: <strong>{r.account_type || '—'}</strong></div>
+                        <div>👤 Holder: <strong>{r.account_name || '—'}</strong></div>
+                        <CopyField label="Account number" value={r.account_number} />
+                      </div>
+                    )}
+
+                    <div className="admin-withdraw-card-actions" style={{ marginTop: 12, gap: 8 }}>
                       <button
                         type="button"
                         className="btn btn-primary"
-                        onClick={() => {
-                          setTab('requests');
-                          setReplyDrafts((d) => ({
-                            ...d,
-                            [w.id]: d[w.id] || 'Payment sent to your account.',
-                          }));
-                        }}
+                        style={{ flex: 1 }}
+                        onClick={() => handleRequest(r.id, 'approved')}
                       >
-                        Open in requests
+                        ✅ Approve
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger"
+                        style={{ flex: 1 }}
+                        onClick={() => handleRequest(r.id, 'rejected')}
+                      >
+                        ❌ Reject
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
             </section>
+          )}
+
+          {requests.filter(r => r.status === 'pending').length === 0 && (
+            <div className="card" style={{ textAlign: 'center', padding: '32px', color: 'var(--muted)' }}>
+              ✅ No pending requests right now.
+            </div>
           )}
         </>
       )}
@@ -430,9 +454,13 @@ export default function AdminPage() {
 
       {tab === 'requests' && (
         <div className="admin-requests-list">
-          <p style={{ color: 'var(--muted)', marginBottom: 12, fontSize: '0.9rem' }}>
-            Withdraw requests appear first. Copy account number → pay user → Approve or Reject.
-          </p>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+            <h2 style={{ margin: 0 }}>All Requests</h2>
+            <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+              Pending: Deposits ({requests.filter(r => r.status === 'pending' && r.type === 'deposit').length}) &nbsp;|&nbsp;
+              Withdrawals ({requests.filter(r => r.status === 'pending' && r.type === 'withdraw').length})
+            </span>
+          </div>
           {requests.map(renderRequestCard)}
           {!requests.length && <p className="wallet-empty">No requests yet.</p>}
         </div>
@@ -601,6 +629,42 @@ export default function AdminPage() {
           border-color: rgba(251, 191, 36, 0.45);
         }
         .stat-card-warn strong { color: #fbbf24; }
+        .stat-card-urgent {
+          border-color: rgba(34, 197, 94, 0.55);
+          background: rgba(34, 197, 94, 0.07);
+          animation: pulse-border 1.8s ease-in-out infinite;
+        }
+        .stat-card-urgent strong { color: var(--accent); }
+        @keyframes pulse-border {
+          0%, 100% { border-color: rgba(34, 197, 94, 0.55); }
+          50% { border-color: rgba(34, 197, 94, 0.9); }
+        }
+        .admin-deposit-card {
+          border-color: rgba(34, 197, 94, 0.4);
+          background: rgba(34, 197, 94, 0.05);
+        }
+        .req-type-badge {
+          display: inline-block;
+          font-size: 0.75rem;
+          font-weight: 700;
+          padding: 2px 8px;
+          border-radius: 6px;
+          letter-spacing: 0.04em;
+        }
+        .req-type-badge.deposit {
+          background: rgba(34, 197, 94, 0.18);
+          color: var(--accent);
+        }
+        .req-type-badge.withdraw {
+          background: rgba(251, 191, 36, 0.18);
+          color: #fbbf24;
+        }
+        .admin-withdraw-card-actions {
+          display: flex;
+          gap: 8px;
+          margin-top: 12px;
+        }
+
         .admin-withdraw-section h2 {
           font-size: 1.15rem;
           margin-bottom: 8px;
