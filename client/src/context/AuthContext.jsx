@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { api } from '../api';
+import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext(null);
 
@@ -30,6 +31,26 @@ export function AuthProvider({ children }) {
     return () => clearInterval(interval);
   }, [token]);
 
+  // Handle Google OAuth callback — Supabase fires onAuthStateChange after redirect
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.access_token) {
+        // Only handle if we don't already have our own token (avoid loop)
+        const existing = localStorage.getItem('aviouter_token');
+        if (existing) return;
+        try {
+          const data = await api.loginWithGoogle(session.access_token);
+          localStorage.setItem('aviouter_token', data.token);
+          setToken(data.token);
+          setUser(data.user);
+        } catch (e) {
+          console.error('Google auth failed:', e.message);
+        }
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   const login = async (email, password) => {
     const data = await api.login({ email, password });
     localStorage.setItem('aviouter_token', data.token);
@@ -46,10 +67,23 @@ export function AuthProvider({ children }) {
     return data.user;
   };
 
-  const logout = () => {
+  const loginWithGoogle = async () => {
+    // Clear any existing token so the onAuthStateChange handler picks it up
+    localStorage.removeItem('aviouter_token');
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+    if (error) throw new Error(error.message);
+  };
+
+  const logout = async () => {
     localStorage.removeItem('aviouter_token');
     setToken(null);
     setUser(null);
+    await supabase.auth.signOut();
   };
 
   const refreshUser = async () => {
@@ -61,7 +95,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, token, loading, login, register, logout, refreshUser, setUser }}
+      value={{ user, token, loading, login, register, loginWithGoogle, logout, refreshUser, setUser }}
     >
       {children}
     </AuthContext.Provider>

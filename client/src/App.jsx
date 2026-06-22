@@ -9,6 +9,7 @@ import HistoryPage from './pages/HistoryPage';
 import WalletPage from './pages/WalletPage';
 import AdminPage from './pages/AdminPage';
 import Layout from './components/Layout';
+import GoogleCallbackPage from './pages/GoogleCallbackPage';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -30,6 +31,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/auth/callback" element={<GoogleCallbackPage />} />
       <Route
         path="/"
         element={

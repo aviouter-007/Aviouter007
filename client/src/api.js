@@ -22,6 +22,9 @@ export const api = {
   login: (body) =>
     request('/auth/login', { method: 'POST', body: JSON.stringify(body), headers: headers() }),
   me: (token) => request('/auth/me', { headers: headers(token) }),
+  loginWithGoogle: (access_token) =>
+    request('/auth/google', { method: 'POST', body: JSON.stringify({ access_token }), headers: headers() }),
+
   gameState: () => request('/game/state'),
   gameHistory: () => request('/game/history'),
   transactions: (token) => request('/transactions', { headers: headers(token) }),

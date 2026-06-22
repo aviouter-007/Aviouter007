@@ -443,6 +443,50 @@ export default async function handler(req, res) {
       if (!user) return res.status(401).json({ error: 'Authentication required' });
       return res.json({ user: publicUser(user) });
     }
+
+    // Google OAuth — called after Supabase OAuth flow completes
+    if (p1 === 'google' && req.method === 'POST') {
+      const { access_token } = req.body;
+      if (!access_token) return res.status(400).json({ error: 'Missing access_token' });
+
+      // Verify token with Supabase and get user info
+      const { data: sbUser, error: sbErr } = await supabase.auth.getUser(access_token);
+      if (sbErr || !sbUser?.user) return res.status(401).json({ error: 'Invalid Google token' });
+
+      const googleEmail = sbUser.user.email?.toLowerCase();
+      const googleName = sbUser.user.user_metadata?.full_name || sbUser.user.user_metadata?.name || '';
+      if (!googleEmail) return res.status(400).json({ error: 'Could not get email from Google' });
+
+      // Find existing user or create new one
+      let { data: existing } = await supabase.from('users').select('*').eq('email', googleEmail).maybeSingle();
+
+      if (!existing) {
+        // Auto-register new user
+        const myReferralCode = await generateReferralCode();
+        const id = uuidv4();
+        const settings = await getSettings();
+        const startBal = settings.starting_balance || 0;
+        const username = googleName
+          ? googleName.replace(/\s+/g, '').toLowerCase().slice(0, 16) + Math.floor(Math.random() * 999)
+          : await makeUsernameFromEmail(googleEmail);
+
+        await supabase.from('users').insert({
+          id,
+          email: googleEmail,
+          password_hash: await bcrypt.hash(uuidv4(), 6), // random password since they use Google
+          username,
+          role: 'user',
+          balance: startBal,
+          referral_code: myReferralCode,
+        });
+
+        const { data: newUser } = await supabase.from('users').select('*').eq('id', id).single();
+        existing = newUser;
+      }
+
+      if (existing.is_blocked) return res.status(403).json({ error: 'Account suspended' });
+      return res.json({ token: signToken(existing), user: publicUser(existing) });
+    }
   }
 
   // ── GAME ──────────────────────────────────────────────────────────────────
