@@ -171,11 +171,13 @@ export default function AdminPage() {
 
   const pendingWithdrawals = stats.pendingWithdrawals || [];
   const withdrawBadge = stats.pendingWithdraw || 0;
+  const depositBadge = stats.pendingDeposit || 0;
+  const totalPendingBadge = withdrawBadge + depositBadge;
 
   const tabs = [
     ['overview', 'Overview'],
     ['users', 'Users'],
-    ['requests', `Coin requests${withdrawBadge ? ` (${withdrawBadge})` : ''}`],
+    ['requests', `Coin requests${totalPendingBadge ? ` (${totalPendingBadge})` : ''}`],
     ['support', 'Support chat'],
     ['transactions', 'Transactions'],
     ['settings', 'Game settings'],

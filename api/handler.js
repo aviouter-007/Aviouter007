@@ -460,7 +460,8 @@ export default async function handler(req, res) {
     if (p1 === 'bet' && req.method === 'POST') {
       const user = await getUser(req);
       if (!user) return res.status(401).json({ error: 'Authentication required' });
-      if (!user.has_deposited) return res.status(400).json({ error: 'Deposit required. Request a deposit in Wallet and wait for admin approval.' });
+      // Allow betting if user has balance (from admin adjustment or deposit approval)
+      if (!user.has_deposited && user.balance <= 0) return res.status(400).json({ error: 'Deposit required. Request a deposit in Wallet and wait for admin approval.' });
       
       const { amount, autoCashout } = req.body;
       const { data: rounds } = await supabase.from('rounds').select('*').order('created_at', { ascending: false }).limit(1);
@@ -578,9 +579,9 @@ export default async function handler(req, res) {
         transaction_id: type === 'deposit' ? transactionId.trim() : null,
         account_name: type === 'withdraw' ? accountName.trim() : null,
         account_number: type === 'withdraw' ? accountNumber.trim() : null,
-        note: type === 'withdraw' ? accountType.trim() : null
+        account_type: type === 'withdraw' ? accountType.trim() : null
       });
-      if (error) return res.status(500).json({ error: 'Failed to submit' });
+      if (error) return res.status(500).json({ error: error.message || 'Failed to submit' });
       return res.json({ ok: true });
     }
 
@@ -838,7 +839,8 @@ export default async function handler(req, res) {
         const newBal = target.balance + amount;
         if (newBal < 0) return res.status(400).json({ error: 'Balance cannot go negative' });
         
-        await supabase.from('users').update({ balance: newBal }).eq('id', p2);
+        // Also set has_deposited=true so user can place bets
+        await supabase.from('users').update({ balance: newBal, has_deposited: true }).eq('id', p2);
         await supabase.from('transactions').insert({
           id: uuidv4(),
           user_id: p2,
@@ -879,6 +881,7 @@ export default async function handler(req, res) {
         const { data } = await supabase.from('currency_requests').select('*, users(username, email)').order('created_at', { ascending: false }).limit(200);
         const requests = (data || []).map(r => ({
           ...r,
+          // Support both old (note column) and new (account_type column) storage
           account_type: r.account_type || (r.type === 'withdraw' ? r.note : null),
           username: r.users?.username,
           email: r.users?.email,
@@ -886,8 +889,9 @@ export default async function handler(req, res) {
         })).sort((a, b) => {
           const getPriority = (req) => {
             if (req.status === 'pending' && req.type === 'withdraw') return 0;
-            if (req.status === 'pending') return 1;
-            return 2;
+            if (req.status === 'pending' && req.type === 'deposit') return 1;
+            if (req.status === 'pending') return 2;
+            return 3;
           };
           const pA = getPriority(a);
           const pB = getPriority(b);
